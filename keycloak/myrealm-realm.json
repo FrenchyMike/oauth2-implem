@@ -1,0 +1,59 @@
+{
+  "realm": "myrealm",
+  "enabled": true,
+
+  "roles": {
+    "client": {
+      "my_client_id": [
+        {
+          "name": "user",
+          "description": "Standard application user",
+          "clientRole": true
+        }
+      ]
+    }
+  },
+
+  "clients": [
+    {
+      "clientId": "my_client_id",
+      "name": "My Web App",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "my_client_secret",
+      "standardFlowEnabled": true,
+
+      "redirectUris": [
+        "http://localhost:8080/oauth2/callback"
+      ],
+
+      "webOrigins": [
+        "http://localhost:8080"
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "mike",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "mike@mail.com",
+
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mike-password",
+          "temporary": false
+        }
+      ],
+
+      "clientRoles": {
+        "my_client_id": [
+          "user"
+        ]
+      }
+    }
+  ]
+}
