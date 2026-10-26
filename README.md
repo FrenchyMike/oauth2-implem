@@ -1,32 +1,43 @@
-# Oauth2 authentication implementation
+# OAuth 2.0 Authentication Implementation
 
 ## Context
 
-Traditionally, accessing a protected service often meant providing credentials directly. OAuth introduced delegated authorization, allowing applications to receive limited access through tokens instead of handling the user's password. OAuth 2.0 standardized and expanded this model for modern web and API architectures.
+Traditionally, accessing a protected service often meant providing credentials directly. OAuth introduced delegated authorization, allowing applications to receive limited access through tokens instead of handling the user's password.
+
+OAuth 2.0 standardized and expanded this model for modern web applications and API architectures.
 
 ## Stack
 
-The purpose of this documentation is to implement an oauth2 solution to authenticate on a web app.
+The purpose of this documentation is to implement an OAuth 2.0/OIDC authentication solution for a web application.
 
-* Web app: very basic [Nginx](https://nginx.org/en/docs/index.html) web app consisting of a index.html
-* Oauth2 solution: [Keycloak](https://www.keycloak.org/documentation)
+* Web application: a very basic [Nginx](https://nginx.org/en/docs/index.html) web application consisting of a single `index.html` page.
+* Authentication server: [Keycloak](https://www.keycloak.org/documentation).
 * Infrastructure:
-  * Ubuntu24.04 under WSL2
-  * [Docker](https://docs.docker.com/)
+  * Ubuntu 24.04 running under WSL2.
+  * [Docker](https://docs.docker.com/).
 
-Our docker stack will consists in 3 services:
-* nginx: our web app
-* oauth2_proxy: Redirect to oauth2 instance
-* Keycloak: Oauth2 instance
+Our Docker stack consists of three services:
 
-## Requirement
+* `nginx`: our web application and reverse proxy.
+* `oauth2-proxy`: handles the OIDC authentication flow and redirects users to Keycloak when authentication is required.
+* `keycloak`: our identity and authentication server.
 
-* Update the `/etc/hosts` file, for windows usage: `C:\Windows\System32\drivers\etc`
+## Requirements
+
+* Update the `/etc/hosts` file. On Windows, the equivalent file is located at:
+
+  ```text
+  C:\Windows\System32\drivers\etc\hosts
+  ```
+
+  Add:
+
   ```text
   127.0.0.1   localhost keycloak
   ```
-* WSL2 or any Hypervisor (HyperV, VMWare, VirtualBox...)
-  * [WSL Installation documentation](https://learn.microsoft.com/en-us/windows/wsl/install)
+
+* WSL2 or another hypervisor such as Hyper-V, VMware, or VirtualBox.
+  * [WSL installation documentation](https://learn.microsoft.com/en-us/windows/wsl/install)
 
 ```powershell
 PS C:\> wsl --version
@@ -40,9 +51,10 @@ Windows version: 10.0.26200.9711
 ```
 
 * Docker
-  * [Docker installation on ubuntu documentation](https://docs.docker.com/engine/install/ubuntu/)
+  * [Docker installation on Ubuntu documentation](https://docs.docker.com/engine/install/ubuntu/)
+
 ```bash
-> $ docker version
+$ docker version
 Client: Docker Engine - Community
  Version:           29.9.2
  API version:       1.56
@@ -56,10 +68,10 @@ Server: Docker Engine - Community
  Engine:
   Version:          29.9.2
   API version:      1.56 (minimum version 1.40)
-  Go version:       go1.26.10
-  Git commit:       0367cbe
-  Built:            Tue Oct 20 18:44:40 2026
-  OS/Arch:          linux/amd64
+  Go version:        go1.26.10
+  Git commit:        0367cbe
+  Built:             Tue Oct 20 18:44:40 2026
+  OS/Arch:           linux/amd64
   Experimental:     false
  containerd:
   Version:          v2.4.2
@@ -72,10 +84,9 @@ Server: Docker Engine - Community
   GitCommit:        de40ad0
 ```
 
-
 ## Stack
 
-### Auth diagram
+### Authentication Diagram
 
 ```mermaid
 flowchart TD
@@ -92,46 +103,57 @@ flowchart TD
     E --> D
 ```
 
-As described before our stack will run under docker-compose. For each service I will describe the `docker-compose` block and its configuration.
-### Requirement
+As described above, our stack runs using Docker Compose. For each service, I will describe its `docker-compose.yaml` block and configuration.
 
-Before configure any service we need a common docker network.
+### Requirements
 
-Within docker-compose file
+Before configuring the services, we need to create a common Docker network.
+
+In the `docker-compose.yaml` file:
+
 ```yaml
 services:
     # nginx
     # oauth2-proxy
     # keycloak
+
 networks:
     web:
 ```
 
-Our docker network will be create when lauching our first `docker compose up`.
-Check:
+The Docker network will be created automatically the first time we run:
+
 ```bash
-> $ docker network ls
-    NETWORK ID     NAME         DRIVER    SCOPE
-    0072503fa7f2   bridge       bridge    local
-    0e7185d1e2c6   host         host      local
-    10756ce2dcea   none         null      local
-    7f1b97eabaca   oauth2_web   bridge    local # <-- Docker network created through docker-compose
+docker compose up
+```
+
+We can verify that the network has been created with:
+
+```bash
+$ docker network ls
+NETWORK ID     NAME         DRIVER    SCOPE
+0072503fa7f2   bridge       bridge    local
+0e7185d1e2c6   host         host      local
+10756ce2dcea   none         null      local
+7f1b97eabaca   oauth2_web   bridge    local # <-- Docker network created by Docker Compose
 ```
 
 ### Nginx
 
-#### Docker-compose block
+#### Docker Compose Block
 
-__What do we need ?__
-* A docker image: `nginx:stable-alpine3.24-slim`, can be found in docker hub. Keep in mind that using `latest` version is NOT a best practise.
-* A port sharing: We want to access our web app through port 80
-* Volume:
-  * nginx configuration
-  * html index page
-* dependance: `oauth2-proxy` service (which depends on keycloak)
-* Within de`web` network
+**What do we need?**
 
-Below the docker compose block:
+* A Docker image: `nginx:stable-alpine3.24-slim`, available on Docker Hub. Keep in mind that using the `latest` tag is generally not recommended.
+* Port mapping: we want to access our web application through port `8080` on the host, mapped to port `80` inside the container.
+* Two volumes:
+  * The Nginx configuration.
+  * The HTML index page.
+* A dependency on the `oauth2-proxy` service, which itself depends on Keycloak.
+* The shared `web` network.
+
+Docker Compose configuration:
+
 ```yaml
 services:
   nginx:
@@ -152,12 +174,13 @@ networks:
   web:
 ```
 
-#### Nginx configuration
+#### Nginx Configuration
 
 ```conf
 server {
     listen 80;
     server_name localhost;
+
     location = /oauth2/auth {
         internal;
 
@@ -169,6 +192,7 @@ server {
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
     }
+
     location /oauth2/ {
         proxy_pass http://oauth2-proxy:4180;
 
@@ -179,7 +203,6 @@ server {
     }
 
     location / {
-
         auth_request /oauth2/auth;
         error_page 401 = /oauth2/sign_in;
 
@@ -211,81 +234,87 @@ server {
 | `root /usr/share/nginx/html` | Defines the directory containing the website's static files. |
 | `index index.html` | Defines `index.html` as the default file. |
 
-### Oauth2-proxy
+### OAuth2 Proxy
 
-__What do we need ?__
-* A docker image: `dhi.io/oauth2-proxy:7-debian`
-* environment variable:
-  * `OAUTH2_PROXY_PROVIDER: oidc`: make oauth2 using oidc protocol
-  * `OAUTH2_PROXY_OIDC_ISSUER_URL: http://keycloak:8081/realms/myrealm`: OIDC instance(keycloak container instance in this case)
-  * `OAUTH2_PROXY_CLIENT_ID: my_client_id`: App id within keycloak, this id will be used in the keycloak configuration
-  * `OAUTH2_PROXY_CLIENT_SECRET: my_client_secret`: client secret related to client id
-  * `OAUTH2_PROXY_COOKIE_SECRET: 3uqI94f3RBMOIRDxFmQ35sr33HuKHJ370NkV_T1eUpI=`: This secret is used by oauth2 to secure cookie sessionsymmetric encryption secret used to secure OAuth2 Proxy session cookies. To generate it, use the following command:`openssl rand -base64 32 | tr '+/' '-_'`
-  * `OAUTH2_PROXY_EMAIL_DOMAINS: "*"` Control allowed domain. `*` means all email address. In a company context we would have set it to `mycomany.com`
-  * `OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"`: Address and port where oauth2_proxy is listening
-  * `OAUTH2_PROXY_REDIRECT_URL: "http://localhost:8080/oauth2/callback"`: Once Keycloak has done the authentication it will sent this url:
-    ```text
-        Browser
-        │
-        ▼
-        Keycloak login
-        │
-        │ authentication OK
-        ▼
-        http://localhost:8080/oauth2/callback
-        │
-        ▼
-        oauth2-proxy
+**What do we need?**
+
+* A Docker image: `dhi.io/oauth2-proxy:7-debian`.
+* The following environment variables:
+
+  * `OAUTH2_PROXY_PROVIDER: "oidc"`: Configures OAuth2 Proxy to use OpenID Connect (OIDC).
+
+  * `OAUTH2_PROXY_OIDC_ISSUER_URL: "http://keycloak:8081/realms/myrealm"`: Defines the OIDC issuer URL. In our case, this points to the Keycloak realm running inside the Docker network.
+
+  * `OAUTH2_PROXY_CLIENT_ID: "my_client_id"`: The client ID registered in Keycloak. The same client ID must be configured on both sides.
+
+  * `OAUTH2_PROXY_CLIENT_SECRET: "my_client_secret"`: The secret associated with the client ID. OAuth2 Proxy uses it to authenticate itself to Keycloak.
+
+  * `OAUTH2_PROXY_COOKIE_SECRET`: A symmetric encryption secret used to secure OAuth2 Proxy session cookies.
+
+    It can be generated using:
+
+    ```bash
+    openssl rand -base64 32 | tr '+/' '-_'
     ```
-  * `OAUTH2_PROXY_REVERSE_PROXY: "true"`:In our architecture oauth2 in behind an nginx reverse proxy.
-  * `OAUTH2_PROXY_SET_XAUTHREQUEST: "true"`: This setting is related to the Nginx integration. It exposes authentication information to Nginx through the response headers of /oauth2/auth, which Nginx can then forward to the application.
 
-__RECAP__
-| Environment Variable | Purpose |
-|---|---|
-| `OAUTH2_PROXY_PROVIDER` | Defines the authentication provider/protocol used by OAuth2 Proxy, in this case `oidc`. |
-| `OAUTH2_PROXY_OIDC_ISSUER_URL` | URL of the OIDC provider/issuer, in this case the Keycloak realm. |
-| `OAUTH2_PROXY_CLIENT_ID` | Identifies OAuth2 Proxy as a client registered with Keycloak. |
-| `OAUTH2_PROXY_CLIENT_SECRET` | Secret used by OAuth2 Proxy to authenticate itself as the registered client with Keycloak. |
-| `OAUTH2_PROXY_COOKIE_SECRET` | Secret used by OAuth2 Proxy to secure its session cookies. |
-| `OAUTH2_PROXY_EMAIL_DOMAINS` | Defines which email domains are allowed to authenticate. `*` allows all email domains. |
-| `OAUTH2_PROXY_HTTP_ADDRESS` | Defines the address and port on which OAuth2 Proxy listens for HTTP connections. |
-| `OAUTH2_PROXY_REDIRECT_URL` | Callback URL to which the browser is redirected after authentication with the OIDC provider. |
-| `OAUTH2_PROXY_REVERSE_PROXY` | Enables operation behind a reverse proxy such as Nginx. |
-| `OAUTH2_PROXY_SET_XAUTHREQUEST` | Makes authentication information available through `X-Auth-Request-*` headers for use by Nginx and upstream applications. |
+  * `OAUTH2_PROXY_EMAIL_DOMAINS: "*"`: Controls which email domains are allowed. `*` allows all email addresses. In a company environment, this could instead be restricted to a domain such as `mycompany.com`.
 
-Below the `docker-compose.yaml` block:
+  * `OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"`: Defines the address and port on which OAuth2 Proxy listens.
+
+  * `OAUTH2_PROXY_REDIRECT_URL: "http://localhost:8080/oauth2/callback"`: Defines the callback URL to which the browser is redirected after authentication.
+
+    ```text
+    Browser
+       │
+       ▼
+    Keycloak login
+       │
+       │ Authentication successful
+       ▼
+    http://localhost:8080/oauth2/callback
+       │
+       ▼
+    OAuth2 Proxy
+    ```
+
+  * `OAUTH2_PROXY_REVERSE_PROXY: "true"`: Indicates that OAuth2 Proxy is running behind a reverse proxy, Nginx in our architecture.
+
+  * `OAUTH2_PROXY_SET_XAUTHREQUEST: "true"`: Enables the Nginx integration by exposing authentication information through the response headers of `/oauth2/auth`. Nginx can then forward this information to the application.
+
+The corresponding `docker-compose.yaml` block is:
+
 ```yaml
-  oauth2-proxy:
-    image: dhi.io/oauth2-proxy:7-debian
-    container_name: oauth2-proxy
-    environment:
-      OAUTH2_PROXY_PROVIDER: oidc
-      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
-      OAUTH2_PROXY_CLIENT_ID: ${CLIENT_ID}
-      OAUTH2_PROXY_CLIENT_SECRET: ${CLIENT_SECRET}
-      OAUTH2_PROXY_COOKIE_SECRET: ${COOKIE_SECRET}
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
-      OAUTH2_PROXY_REDIRECT_URL: "http://localhost:8080/oauth2/callback"
-      OAUTH2_PROXY_REVERSE_PROXY: "true"
-      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
-    depends_on:
-      keycloak:
-        condition: service_healthy
-        restart: true
-    networks:
-      - web
+oauth2-proxy:
+  image: dhi.io/oauth2-proxy:7-debian
+  container_name: oauth2-proxy
+  environment:
+    OAUTH2_PROXY_PROVIDER: oidc
+    OAUTH2_PROXY_OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+    OAUTH2_PROXY_CLIENT_ID: ${CLIENT_ID}
+    OAUTH2_PROXY_CLIENT_SECRET: ${CLIENT_SECRET}
+    OAUTH2_PROXY_COOKIE_SECRET: ${COOKIE_SECRET}
+    OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+    OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+    OAUTH2_PROXY_REDIRECT_URL: "http://localhost:8080/oauth2/callback"
+    OAUTH2_PROXY_REVERSE_PROXY: "true"
+    OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+  depends_on:
+    keycloak:
+      condition: service_healthy
+      restart: true
+  networks:
+    - web
 ```
 
-Note that variable are protected below a `.env` file:
-```
+The configuration values are stored in a `.env` file:
+
+```dotenv
 CLIENT_ID=my_client_id
 CLIENT_SECRET=my_client_secret
 OIDC_ISSUER_URL=http://keycloak:8081/realms/myrealm
-COOKIE_SECRET=3uqI94f3RBMOIRDxFmQ35sr33HuKHJ370NkV_T1eUpI=
+COOKIE_SECRET=<generated-cookie-secret>
 KC_BOOTSTRAP_ADMIN_USERNAME=kc_admin
-KC_BOOTSTRAP_ADMIN_PASSWORD=kc_passwd
-``` 
+KC_BOOTSTRAP_ADMIN_PASSWORD=<admin-password>
+```
 
 ### Keycloak
