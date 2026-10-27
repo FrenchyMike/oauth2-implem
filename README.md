@@ -140,7 +140,7 @@ NETWORK ID     NAME         DRIVER    SCOPE
 
 ### Nginx
 
-#### Docker Compose Block
+#### [Docker Compose Block](./docker-compose/docker-compose.yaml#L2)
 
 **What do we need?**
 
@@ -174,7 +174,7 @@ networks:
   web:
 ```
 
-#### Nginx Configuration
+#### [Nginx Configuration](./docker-compose/nginx.conf)
 
 ```conf
 server {
@@ -234,7 +234,23 @@ server {
 | `root /usr/share/nginx/html` | Defines the directory containing the website's static files. |
 | `index index.html` | Defines `index.html` as the default file. |
 
+#### [Index html file](./docker-compose/html/index.html)
+
+A simple file that mock a web application:
+
+```html
+<!doctype html>
+<html>
+<body>
+    <h1>My web site</h1>
+    <p>you've been authenticated.</p>
+</body>
+</html>
+```
+
 ### OAuth2 Proxy
+
+#### [Docker compose block](./docker-compose/docker-compose.yaml#L16)
 
 **What do we need?**
 
@@ -280,6 +296,16 @@ server {
   * `OAUTH2_PROXY_REVERSE_PROXY: "true"`: Indicates that OAuth2 Proxy is running behind a reverse proxy, Nginx in our architecture.
 
   * `OAUTH2_PROXY_SET_XAUTHREQUEST: "true"`: Enables the Nginx integration by exposing authentication information through the response headers of `/oauth2/auth`. Nginx can then forward this information to the application.
+* Within the network `web`
+* OAuth2 service depends on keycloak to be up **AND RUNNING !**, if we just set a vanilla `depends_on` the container will fail as it needs to access the keycloak realm configuration through keycloak URL. So I set the following `depends_on` configuration using the [Docker documentation](https://docs.docker.com/compose/how-tos/startup-order/)
+  ```yaml
+  services:
+    oauth2-proxy:
+      depends_on:
+        keycloak: # Service
+          condition: service_healthy # This specifies that a dependency is expected to be “healthy”, which is defined with healthcheck, before starting a dependent service
+          restart: true # ensures that if keycloak is updated or restarted due to an explicit Compose operation, for example `docker compose restart`, the oauth2-proxy service is also restarted automatically, ensuring it re-establishes connections or dependencies correctly
+  ```
 
 The corresponding `docker-compose.yaml` block is:
 
@@ -306,7 +332,9 @@ oauth2-proxy:
     - web
 ```
 
-The configuration values are stored in a `.env` file:
+#### Oauth2-proxy configuration
+
+There is no configuration file, the configuration values are stored in a `.env` file:
 
 ```dotenv
 CLIENT_ID=my_client_id
@@ -318,3 +346,150 @@ KC_BOOTSTRAP_ADMIN_PASSWORD=<admin-password>
 ```
 
 ### Keycloak
+
+#### [Docker Compose block](./docker-compose/docker-compose.yaml#L37)
+
+**What do we need?**
+
+* A Docker image: `quay.io/keycloak/keycloak:26.7`
+* Additional startup options:
+  * `start-dev`: Starts the server in development mode for local development and testing.
+  * `--import-realm`: Imports the realm configuration at startup from the `data/import` directory.
+  * `--http-port=8081`: Configures the main Keycloak HTTP server to listen on port 8081 instead of the default port 8080, avoiding a port conflict with Nginx.
+* Environment variables:
+  * `KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}`: Defines the bootstrap administrator username.
+  * `KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}`: Defines the bootstrap administrator password.
+  * `KC_HEALTH_ENABLED: "true"`: Enables Keycloak health-check endpoints. The readiness endpoint `/health/ready` is used by the Docker healthcheck to determine when Keycloak is ready to process requests.
+* Healthcheck: As explained in the `oauth2-proxy` section, we need to ensure that Keycloak is ready before starting services that depend on it. Since `curl` is not available in the Keycloak container image, the healthcheck opens a TCP connection directly and sends an HTTP request to the readiness endpoint:
+
+  ```bash
+  exec 3<>/dev/tcp/127.0.0.1/9000 # Open a TCP connection and assign it to file descriptor 3
+  printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 # Send the HTTP request through file descriptor 3
+  grep -q '200 OK' <&3 # Check whether the response contains "200 OK"
+  ```
+
+* The `web` Docker network, allowing Keycloak to communicate with the other services.
+* A shared volume containing the Keycloak realm configuration.
+
+The corresponding `docker-compose.yaml` configuration is:
+
+```yaml
+keycloak:
+  image: quay.io/keycloak/keycloak:26.7
+  container_name: keycloak
+  command:
+    - start-dev
+    - --import-realm
+    - --http-port=8081
+  environment:
+    KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+    KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+    KC_HEALTH_ENABLED: "true"
+  volumes:
+    - ./keycloak:/opt/keycloak/data/import
+  ports:
+    - "8081:8081"
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '200 OK' <&3"
+      ]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 20s
+  networks:
+    - web
+```
+
+#### [Keycloak configuration](./docker-compose/keycloak/myrealm-realm.json)
+
+**`realm`**
+
+Defines the Keycloak realm used by the application for authentication.
+
+> A realm in Keycloak is equivalent to a tenant. Each realm allows an administrator to create isolated groups of applications and users. Initially, Keycloak includes a single realm, called master. Use this realm only for managing Keycloak and not for managing any applications.
+
+Source: [Official Keycloak documentation](https://www.keycloak.org/getting-started/getting-started-docker#_create_a_realm)
+
+```json
+"realm": "myrealm",
+"enabled": true
+```
+
+**`roles`**
+
+Defines the roles available to the client application. Here, the `user` role is created as a client-specific role for `my_client_id`.
+
+```json
+"roles": {
+  "client": {
+    "my_client_id": [
+      {
+        "name": "user",
+        "description": "Standard application user",
+        "clientRole": true
+      }
+    ]
+  }
+}
+```
+
+**`clients`**
+
+Defines the application registered with Keycloak as an OpenID Connect client. It specifies the client ID, client secret, protocol, allowed redirect URI, and web origin.
+
+```json
+"clients": [
+  {
+    "clientId": "my_client_id",
+    ...
+  }
+]
+```
+
+**`users`**
+
+Defines the users created when the realm configuration is imported. In this example, the `mike` user is created with a password and assigned the `user` client role for `my_client_id`.
+
+```json
+"users": [
+  {
+    "username": "mike",
+    ...
+  }
+]
+```
+
+**`credentials`**
+
+Defines the credentials used to authenticate the user. Here, `mike` is configured with a permanent password (`temporary: false`).
+
+**`clientRoles`**
+
+Assigns client-specific roles to the user. Here, `mike` is assigned the `user` role for the `my_client_id` client.
+
+## Run the stack
+
+Start all services:
+
+```bash
+docker compose up -d
+```
+
+Check the logs:
+
+```bash
+docker compose logs -f nginx
+```
+
+### Test the authentication flow in the browser
+
+* Open `http://localhost:8080`.
+
+  ![Application login page](./img/localhost8080.png)
+
+* Click **Sign in** and enter the user redirected to the protected application.
+
+  ./img/index-page.png

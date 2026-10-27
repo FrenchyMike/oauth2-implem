@@ -40,6 +40,8 @@
       "enabled": true,
       "emailVerified": true,
       "email": "mike@mail.com",
+      "firstName": "Mike",
+      "lastName": "Smith",
 
       "credentials": [
         {
