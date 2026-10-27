@@ -1,5 +1,9 @@
 # OAuth 2.0 Authentication Implementation
 
+## TLDR
+
+[Run the stack](#run-the-stack)
+
 ## Context
 
 Traditionally, accessing a protected service often meant providing credentials directly. OAuth introduced delegated authorization, allowing applications to receive limited access through tokens instead of handling the user's password.
@@ -475,6 +479,7 @@ Assigns client-specific roles to the user. Here, `mike` is assigned the `user` r
 Start all services:
 
 ```bash
+cd docker-compose
 docker compose up -d
 ```
 
