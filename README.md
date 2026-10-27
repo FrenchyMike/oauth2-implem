@@ -492,9 +492,10 @@ docker compose logs -f nginx
 ### Test the authentication flow in the browser
 
 * Open `http://localhost:8080`.
-
   ![Application login page](./img/localhost8080.png)
 
 * Click **Sign in** and enter the user redirected to the protected application.
+  ![Keycloak login page](./img/keycloak-connection.png)
 
-  ./img/index-page.png
+*  You are logged !
+  ![index html page](./img/index-page.png)
